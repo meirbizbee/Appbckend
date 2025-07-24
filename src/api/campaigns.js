@@ -99,6 +99,59 @@ async function updateCampaignSales() {
 // הרץ את הפונקציה כל 5 דקות
 schedule.scheduleJob('*/5 * * * *', updateCampaignSales);
 
+// פונקציה שמסנכרנת קמפיינים מ-UpPromote
+async function syncUpPromoteCampaigns() {
+  try {
+    const UPPROMOTE_API_KEY = process.env.UPPROMOTE_API_KEY;
+    if (!UPPROMOTE_API_KEY) {
+      console.log('אין UPPROMOTE_API_KEY, מדלג על סנכרון...');
+      return;
+    }
+    
+    const response = await axios.get(
+      'https://app.uppromote.com/api/campaigns',
+      { headers: { 'Authorization': `Bearer ${UPPROMOTE_API_KEY}` } }
+    );
+    const campaigns = response.data.campaigns;
+    
+    for (const campaign of campaigns) {
+      // חפש יוזר לפי affiliateId (שזה המזהה הייחודי שלך)
+      const user = await prisma.user.findFirst({
+        where: { affiliateId: campaign.affiliate_id?.toString() }
+      });
+      
+      if (!user) {
+        console.log(`לא נמצא יוזר עם affiliateId: ${campaign.affiliate_id}`);
+        continue;
+      }
+      
+      // בדוק אם הקמפיין כבר קיים
+      const exists = await prisma.campaign.findFirst({
+        where: { affiliateLink: campaign.affiliate_link }
+      });
+      
+      if (!exists) {
+        await prisma.campaign.create({
+          data: {
+            name: campaign.name,
+            userId: user.id,
+            productId: campaign.product_id,
+            affiliateLink: campaign.affiliate_link,
+            clicks: campaign.clicks || 0,
+            referrals: campaign.sales || 0,
+          }
+        });
+        console.log(`נוסף קמפיין חדש: ${campaign.name} ליוזר ${user.fullName}`);
+      }
+    }
+  } catch (err) {
+    console.error('שגיאה בסנכרון קמפיינים:', err.message);
+  }
+}
+
+// הרץ סנכרון כל 5 דקות
+schedule.scheduleJob('*/5 * * * *', syncUpPromoteCampaigns);
+
 // יצירת קמפיין חדש
 router.post('/', async (req, res) => {
   const { name, userId, productId } = req.body;
@@ -299,6 +352,65 @@ router.post('/sync-uppromote', async (req, res) => {
     res.json({ success: true, added, skipped });
   } catch (err) {
     res.status(500).json({ error: 'Failed to sync campaigns from UpPromote', details: err.message });
+  }
+});
+
+// Endpoint לסנכרון אפיליאייטים מ-UpPromote
+router.post('/sync-affiliates', async (req, res) => {
+  try {
+    const UPPROMOTE_API_KEY = process.env.UPPROMOTE_API_KEY;
+    if (!UPPROMOTE_API_KEY) {
+      return res.status(400).json({ error: 'No UPPROMOTE_API_KEY configured' });
+    }
+    
+    // שלוף את כל האפיליאייטים מ-UpPromote
+    const response = await axios.get(
+      'https://app.uppromote.com/api/affiliates',
+      { headers: { 'Authorization': `Bearer ${UPPROMOTE_API_KEY}` } }
+    );
+    const affiliates = response.data.affiliates;
+    
+    let updated = 0;
+    let notFound = 0;
+    
+    for (const affiliate of affiliates) {
+      // נסה למצוא יוזר לפי שם
+      let user = await prisma.user.findFirst({
+        where: { 
+          fullName: `${affiliate.first_name} ${affiliate.last_name}`.trim()
+        }
+      });
+      
+      // אם לא נמצא לפי שם, נסה לפי אימייל (אם יש שדה email)
+      if (!user && affiliate.email) {
+        user = await prisma.user.findFirst({
+          where: { email: affiliate.email }
+        });
+      }
+      
+      if (user) {
+        // עדכן את ה-affiliateId
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { affiliateId: affiliate.id.toString() }
+        });
+        updated++;
+        console.log(`עודכן affiliateId ליוזר ${user.fullName}: ${affiliate.id}`);
+      } else {
+        notFound++;
+        console.log(`לא נמצא יוזר עבור אפיליאייט: ${affiliate.first_name} ${affiliate.last_name}`);
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      updated, 
+      notFound, 
+      total: affiliates.length 
+    });
+  } catch (err) {
+    console.error('שגיאה בסנכרון אפיליאייטים:', err.message);
+    res.status(500).json({ error: 'Failed to sync affiliates', details: err.message });
   }
 });
 

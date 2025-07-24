@@ -23,6 +23,7 @@ model User {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   apiKey            String?   // מפתח API של UpPromote
+  affiliateId       String?   // מזהה אפיליאייט מ-UpPromote (או המזהה הייחודי שלך)
   campaigns Campaign[]
 }
 
