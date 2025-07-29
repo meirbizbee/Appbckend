@@ -8,12 +8,12 @@ const schedule = require('node-schedule');
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_DOMAIN;
 const SHOPIFY_ADMIN_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
 
-// פונקציה ליצירת קוד אפיליאציה ייחודי
+// Function to generate unique affiliate code
 function generateAffiliateCode(userId) {
   return `aff${userId}_${Date.now()}`;
 }
 
-// שליפת handle של מוצר משופיפיי
+// Get product handle from Shopify
 async function getProductHandle(productId) {
   const response = await axios.get(
     `https://${SHOPIFY_DOMAIN}/admin/api/2023-07/products/${productId}.json`,
@@ -26,7 +26,7 @@ async function getProductHandle(productId) {
   return response.data.product.handle;
 }
 
-// שליפת נתוני מכירות ועמלות ממוצר בשופיפיי
+// Get sales and commission data from Shopify product
 async function getShopifyStatsForProduct(productId) {
   const response = await axios.get(
     `https://${SHOPIFY_DOMAIN}/admin/api/2023-07/orders.json?status=any&fields=line_items,total_price,financial_status`,
@@ -60,12 +60,12 @@ async function getShopifyStatsForProduct(productId) {
   };
 }
 
-// פונקציה שמבצעת polling ל-Shopify ומעדכנת מכירות לכל קמפיין
+// Function that performs polling to Shopify and updates sales for each campaign
 async function updateCampaignSales() {
   try {
-    // שלוף את כל הקמפיינים מה-DB
+    // Get all campaigns from DB
     const campaigns = await prisma.campaign.findMany();
-    // שלוף את כל ההזמנות מה-API של Shopify
+    // Get all orders from Shopify API
     const response = await axios.get(
       `https://${process.env.SHOPIFY_DOMAIN}/admin/api/2023-07/orders.json?status=any&fields=id,line_items,note,cart_token,created_at,updated_at,order_number,customer,tags`,
       {
@@ -75,16 +75,16 @@ async function updateCampaignSales() {
       }
     );
     const orders = response.data.orders;
-    // עבור כל קמפיין, ספור מכירות לפי ref (למשל, מזהה ייחודי ב-note/tag)
+    // For each campaign, count sales by ref (e.g., unique identifier in note/tag)
     for (const campaign of campaigns) {
-      // נניח שה-ref הוא ה-id של הקמפיין (או כל מזהה שתבחר)
+      // Assume ref is the campaign id (or any identifier you choose)
       const ref = campaign.id;
-      // ספור הזמנות שבהן ה-note או ה-tags מכילים את ה-ref
+      // Count orders where note or tags contain the ref
       const sales = orders.filter(order => {
         return (order.note && order.note.includes(ref)) ||
                (order.tags && order.tags.includes(ref));
       }).length;
-      // עדכן את ה-referrals (או total_sales) ב-DB
+      // Update referrals (or total_sales) in DB
       await prisma.campaign.update({
         where: { id: campaign.id },
         data: { referrals: sales, total_sales: sales }
@@ -96,40 +96,79 @@ async function updateCampaignSales() {
   }
 }
 
-// הרץ את הפונקציה כל 5 דקות
+// Run the function every 5 minutes
 schedule.scheduleJob('*/5 * * * *', updateCampaignSales);
 
-// פונקציה שמסנכרנת קמפיינים מ-UpPromote
+// Function that syncs campaigns from UpPromote
 async function syncUpPromoteCampaigns() {
   try {
     const UPPROMOTE_API_KEY = process.env.UPPROMOTE_API_KEY;
     if (!UPPROMOTE_API_KEY) {
-      console.log('אין UPPROMOTE_API_KEY, מדלג על סנכרון...');
+      console.log('No UPPROMOTE_API_KEY, skipping sync...');
       return;
     }
+
+    // Clean API key from invalid characters
+    const cleanApiKey = UPPROMOTE_API_KEY.replace(/[^\w\-\.]/g, '');
     
     const response = await axios.get(
       'https://app.uppromote.com/api/campaigns',
-      { headers: { 'Authorization': `Bearer ${UPPROMOTE_API_KEY}` } }
+      { headers: { 'Authorization': `Bearer ${cleanApiKey}` } }
     );
     const campaigns = response.data.campaigns;
-    
+
     for (const campaign of campaigns) {
-      // חפש יוזר לפי affiliateId (שזה המזהה הייחודי שלך)
-      const user = await prisma.user.findFirst({
-        where: { affiliateId: campaign.affiliate_id?.toString() }
-      });
+      // Search for user by full name with identifier
+      // Format: "Full Name (AFF_123456)"
+      const affiliateName = campaign.affiliate_name || campaign.affiliate?.name;
       
-      if (!user) {
-        console.log(`לא נמצא יוזר עם affiliateId: ${campaign.affiliate_id}`);
+      if (!affiliateName) {
+        console.log(`No affiliate name for campaign: ${campaign.name}`);
         continue;
       }
       
-      // בדוק אם הקמפיין כבר קיים
+      // Extract ID from name (if exists)
+      const idMatch = affiliateName.match(/\(AFF_([^)]+)\)/);
+      let user = null;
+      
+      if (idMatch) {
+        // Has identifier in name - search by ID
+        const userId = idMatch[1];
+        user = await prisma.user.findUnique({
+          where: { id: userId }
+        });
+        console.log(`🔍 Searching for user by ID: ${userId}`);
+      } else {
+        // No identifier - search by regular name
+        const cleanName = affiliateName.replace(/\([^)]*\)/g, '').trim();
+        user = await prisma.user.findFirst({
+          where: { fullName: cleanName }
+        });
+        console.log(`🔍 Searching for user by name: ${cleanName}`);
+      }
+      
+      // If not found, try searching by Last name (if exists)
+      if (!user && campaign.affiliate?.last_name) {
+        const lastNameMatch = campaign.affiliate.last_name.match(/\(AFF_([^)]+)\)/);
+        if (lastNameMatch) {
+          const userId = lastNameMatch[1];
+          user = await prisma.user.findUnique({
+            where: { id: userId }
+          });
+          console.log(`🔍 Searching for user by Last name ID: ${userId}`);
+        }
+      }
+
+      if (!user) {
+        console.log(`User not found for: ${affiliateName}`);
+        continue;
+      }
+
+      // Check if campaign already exists
       const exists = await prisma.campaign.findFirst({
         where: { affiliateLink: campaign.affiliate_link }
       });
-      
+
       if (!exists) {
         await prisma.campaign.create({
           data: {
@@ -141,18 +180,242 @@ async function syncUpPromoteCampaigns() {
             referrals: campaign.sales || 0,
           }
         });
-        console.log(`נוסף קמפיין חדש: ${campaign.name} ליוזר ${user.fullName}`);
+        console.log(`Added new campaign: ${campaign.name} for user ${user.fullName}`);
       }
     }
   } catch (err) {
-    console.error('שגיאה בסנכרון קמפיינים:', err.message);
+    console.error('Error syncing campaigns:', err.message);
+    // If there's an Authorization error, print additional info
+    if (err.message.includes('Invalid character in header content')) {
+      console.error('🔍 API key issue - may contain invalid characters');
+      console.error('API Key length:', UPPROMOTE_API_KEY?.length || 0);
+      console.error('API Key preview:', UPPROMOTE_API_KEY?.substring(0, 10) + '...');
+    }
   }
 }
 
-// הרץ סנכרון כל 5 דקות
+// Run sync every 5 minutes
 schedule.scheduleJob('*/5 * * * *', syncUpPromoteCampaigns);
 
-// יצירת קמפיין חדש
+// Function to create campaign in Shopify with personal link
+async function createShopifyCampaignWithPersonalLink(userId, productId, campaignName) {
+  try {
+    console.log(`🛍️ Creating Shopify campaign for user: ${userId}`);
+    
+    // Get user details
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true, affiliateId: true, personalLink: true }
+    });
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    if (!user.personalLink) {
+      throw new Error('User has no personal link');
+    }
+    
+    console.log(`👤 User: ${user.fullName}`);
+    console.log(`🔗 Personal link: ${user.personalLink}`);
+    
+    // Get product details from Shopify
+    const productResponse = await axios.get(
+      `https://${SHOPIFY_DOMAIN}/admin/api/2023-07/products/${productId}.json`,
+      {
+        headers: {
+          'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN,
+        },
+      }
+    );
+    
+    const product = productResponse.data.product;
+    console.log(`📦 Product: ${product.title}`);
+    
+    // Create affiliate link with personal link
+    const affiliateCode = generateAffiliateCode(userId);
+    const affiliateLink = `${user.personalLink}?ref=${affiliateCode}&product=${productId}`;
+    
+    // Create campaign in database
+    const campaign = await prisma.campaign.create({
+      data: {
+        name: campaignName || `${product.title} - ${user.fullName}`,
+        userId: userId,
+        productId: productId,
+        affiliateLink: affiliateLink,
+        clicks: 0,
+        referrals: 0
+      }
+    });
+    
+    console.log(`✅ Created campaign: ${campaign.name}`);
+    console.log(`🔗 Affiliate link: ${affiliateLink}`);
+    
+    return {
+      id: campaign.id,
+      name: campaign.name,
+      affiliateLink: affiliateLink,
+      product: {
+        id: product.id,
+        title: product.title,
+        price: product.variants[0]?.price ? Number(product.variants[0].price) : 0,
+        image: product.image?.src || null
+      },
+      user: {
+        id: userId,
+        fullName: user.fullName,
+        personalLink: user.personalLink
+      }
+    };
+    
+  } catch (error) {
+    console.error('❌ Error creating Shopify campaign:', error.message);
+    throw error;
+  }
+}
+
+// Function to add personal link to Shopify product
+async function addPersonalLinkToShopifyProduct(productId, personalLink, affiliateCode) {
+  try {
+    console.log(`🛍️ Adding personal link to Shopify product: ${productId}`);
+    
+    // Get product from Shopify
+    const productResponse = await axios.get(
+      `https://${SHOPIFY_DOMAIN}/admin/api/2023-07/products/${productId}.json`,
+      {
+        headers: {
+          'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN,
+        },
+      }
+    );
+    
+    const product = productResponse.data.product;
+    
+    // Create full affiliate link
+    const affiliateLink = `${personalLink}?ref=${affiliateCode}&product=${productId}`;
+    
+    // Update product in Shopify with personal link
+    // This can be through tags, metafields, or custom fields
+    const updateData = {
+      product: {
+        id: productId,
+        tags: [...(product.tags || []), `affiliate_link:${affiliateLink}`, `personal_link:${personalLink}`],
+        // Can also add metafields if needed
+        metafields: [
+          {
+            key: "affiliate_link",
+            value: affiliateLink,
+            type: "single_line_text_field",
+            namespace: "custom"
+          },
+          {
+            key: "personal_link", 
+            value: personalLink,
+            type: "single_line_text_field",
+            namespace: "custom"
+          }
+        ]
+      }
+    };
+    
+    const updateResponse = await axios.put(
+      `https://${SHOPIFY_DOMAIN}/admin/api/2023-07/products/${productId}.json`,
+      updateData,
+      {
+        headers: {
+          'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN,
+          'Content-Type': 'application/json'
+        },
+      }
+    );
+    
+    console.log(`✅ Updated product in Shopify: ${product.title}`);
+    console.log(`🔗 Affiliate link: ${affiliateLink}`);
+    console.log(`🏷️ Additional tags: affiliate_link, personal_link`);
+    
+    return {
+      productId: productId,
+      productTitle: product.title,
+      affiliateLink: affiliateLink,
+      personalLink: personalLink,
+      tags: updateResponse.data.product.tags
+    };
+    
+  } catch (error) {
+    console.error('❌ Error updating product in Shopify:', error.message);
+    throw error;
+  }
+}
+
+// Create new campaign with personal link
+router.post('/with-personal-link', async (req, res) => {
+  const { userId, productId, campaignName } = req.body;
+  if (!userId || !productId) {
+    return res.status(400).json({ error: 'Missing userId or productId' });
+  }
+  
+  try {
+    const result = await createShopifyCampaignWithPersonalLink(userId, productId, campaignName);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Campaign created successfully with personal link',
+      campaign: result
+    });
+    
+  } catch (error) {
+    console.error('Error creating campaign:', error.message);
+    res.status(500).json({ 
+      error: 'Error creating campaign',
+      details: error.message 
+    });
+  }
+});
+
+// Add personal link to Shopify product
+router.post('/add-personal-link-to-shopify', async (req, res) => {
+  const { userId, productId } = req.body;
+  if (!userId || !productId) {
+    return res.status(400).json({ error: 'Missing userId or productId' });
+  }
+  
+  try {
+    // Get user details
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true, personalLink: true }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (!user.personalLink) {
+      return res.status(400).json({ error: 'User has no personal link' });
+    }
+    
+    // Create affiliate code
+    const affiliateCode = generateAffiliateCode(userId);
+    
+    // Add personal link to Shopify product
+    const result = await addPersonalLinkToShopifyProduct(productId, user.personalLink, affiliateCode);
+    
+    res.json({
+      success: true,
+      message: 'Personal link added to Shopify product successfully',
+      result: result
+    });
+    
+  } catch (error) {
+    console.error('Error adding personal link to product:', error.message);
+    res.status(500).json({ 
+      error: 'Error adding personal link to product',
+      details: error.message 
+    });
+  }
+});
+
+// Create new campaign (original)
 router.post('/', async (req, res) => {
   const { name, userId, productId } = req.body;
   if (!name || !userId || !productId) {
@@ -181,7 +444,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// שליפת כל הקמפיינים של יוזר (נתוני דמה בפורמט מדויק)
+// Get all user campaigns (mock data in exact format)
 router.get('/', async (req, res) => {
   const userId = req.query.userId || req.user?.id;
   if (!userId) return res.status(401).json({ error: 'Missing userId' });
@@ -228,7 +491,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// עדכון קליק על קמפיין (אופציונלי)
+// Update campaign click (optional)
 router.post('/:id/click', async (req, res) => {
   const { id } = req.params;
   try {
@@ -242,7 +505,7 @@ router.post('/:id/click', async (req, res) => {
   }
 });
 
-// Endpoint שמחזיר קמפיינים עם נתוני אמת משופיפיי ו-UpPromote
+// Endpoint that returns campaigns with real data from Shopify and UpPromote
 router.get('/real-data/:userId', async (req, res) => {
   const userId = req.params.userId;
   try {
@@ -252,7 +515,7 @@ router.get('/real-data/:userId', async (req, res) => {
     const axios = require('axios');
     const campaigns = await prisma.campaign.findMany({ where: { userId } });
 
-    // נשלוף את כל המוצרים הרלוונטיים במכה אחת
+    // Get all relevant products in one call
     const productIds = campaigns.map(c => c.productId).join(',');
     const shopifyRes = await axios.get(
       `https://${SHOPIFY_DOMAIN}/admin/api/2023-07/products.json?ids=${productIds}`,
@@ -264,14 +527,17 @@ router.get('/real-data/:userId', async (req, res) => {
     );
     const products = shopifyRes.data.products;
 
-    // פונקציה שמביאה נתוני אפיליאייט מ-UpPromote (דוגמה בסיסית)
+    // Function that brings affiliate data from UpPromote (basic example)
     async function getAffiliateStatsFromUpPromote(campaignId) {
       try {
+        // Clean API key from invalid characters
+        const cleanApiKey = UPPROMOTE_API_KEY.replace(/[^\w\-\.]/g, '');
+        
         const response = await axios.get(
           `https://app.uppromote.com/api/campaigns/${campaignId}/stats`,
           {
             headers: {
-              'Authorization': `Bearer ${UPPROMOTE_API_KEY}`
+              'Authorization': `Bearer ${cleanApiKey}`
             }
           }
         );
@@ -281,7 +547,7 @@ router.get('/real-data/:userId', async (req, res) => {
       }
     }
 
-    // בנה את התשובה
+    // Build the response
     const result = await Promise.all(campaigns.map(async (campaign) => {
       const product = products.find(p => p.id.toString() === campaign.productId);
       const affiliateStats = await getAffiliateStatsFromUpPromote(campaign.id);
@@ -308,20 +574,23 @@ router.get('/real-data/:userId', async (req, res) => {
   }
 });
 
-// Endpoint לסנכרון קמפיינים מ-UpPromote לפי שם יוזר
+// Endpoint to sync campaigns from UpPromote by user name
 router.post('/sync-uppromote', async (req, res) => {
   try {
     const UPPROMOTE_API_KEY = process.env.UPPROMOTE_API_KEY;
     const axios = require('axios');
-    // שלוף את כל הקמפיינים מ-UpPromote
+    // Clean API key from invalid characters
+    const cleanApiKey = UPPROMOTE_API_KEY.replace(/[^\w\-\.]/g, '');
+    
+    // Get all campaigns from UpPromote
     const response = await axios.get(
       'https://app.uppromote.com/api/campaigns',
-      { headers: { 'Authorization': `Bearer ${UPPROMOTE_API_KEY}` } }
+      { headers: { 'Authorization': `Bearer ${cleanApiKey}` } }
     );
     const campaigns = response.data.campaigns;
     let added = 0, skipped = 0;
     for (const campaign of campaigns) {
-      // מצא את היוזר שלך לפי שם (fullName)
+      // Find your user by name (fullName)
       const user = await prisma.user.findFirst({
         where: { fullName: campaign.affiliate_name }
       });
@@ -329,7 +598,7 @@ router.post('/sync-uppromote', async (req, res) => {
         skipped++;
         continue;
       }
-      // בדוק אם הקמפיין כבר קיים אצלך
+      // Check if campaign already exists
       const exists = await prisma.campaign.findFirst({
         where: { affiliateLink: campaign.affiliate_link }
       });
@@ -355,7 +624,7 @@ router.post('/sync-uppromote', async (req, res) => {
   }
 });
 
-// Endpoint לסנכרון אפיליאייטים מ-UpPromote
+// Endpoint to sync affiliates from UpPromote
 router.post('/sync-affiliates', async (req, res) => {
   try {
     const UPPROMOTE_API_KEY = process.env.UPPROMOTE_API_KEY;
@@ -363,10 +632,13 @@ router.post('/sync-affiliates', async (req, res) => {
       return res.status(400).json({ error: 'No UPPROMOTE_API_KEY configured' });
     }
     
-    // שלוף את כל האפיליאייטים מ-UpPromote
+    // Clean API key from invalid characters
+    const cleanApiKey = UPPROMOTE_API_KEY.replace(/[^\w\-\.]/g, '');
+    
+    // Get all affiliates from UpPromote
     const response = await axios.get(
       'https://app.uppromote.com/api/affiliates',
-      { headers: { 'Authorization': `Bearer ${UPPROMOTE_API_KEY}` } }
+      { headers: { 'Authorization': `Bearer ${cleanApiKey}` } }
     );
     const affiliates = response.data.affiliates;
     
@@ -374,14 +646,14 @@ router.post('/sync-affiliates', async (req, res) => {
     let notFound = 0;
     
     for (const affiliate of affiliates) {
-      // נסה למצוא יוזר לפי שם
+      // Try to find user by name
       let user = await prisma.user.findFirst({
         where: { 
           fullName: `${affiliate.first_name} ${affiliate.last_name}`.trim()
         }
       });
       
-      // אם לא נמצא לפי שם, נסה לפי אימייל (אם יש שדה email)
+      // If not found by name, try by email (if email field exists)
       if (!user && affiliate.email) {
         user = await prisma.user.findFirst({
           where: { email: affiliate.email }
@@ -389,16 +661,16 @@ router.post('/sync-affiliates', async (req, res) => {
       }
       
       if (user) {
-        // עדכן את ה-affiliateId
+        // Update affiliateId
         await prisma.user.update({
           where: { id: user.id },
           data: { affiliateId: affiliate.id.toString() }
         });
         updated++;
-        console.log(`עודכן affiliateId ליוזר ${user.fullName}: ${affiliate.id}`);
+        console.log(`Updated affiliateId for user ${user.fullName}: ${affiliate.id}`);
       } else {
         notFound++;
-        console.log(`לא נמצא יוזר עבור אפיליאייט: ${affiliate.first_name} ${affiliate.last_name}`);
+        console.log(`User not found for affiliate: ${affiliate.first_name} ${affiliate.last_name}`);
       }
     }
     
@@ -409,7 +681,7 @@ router.post('/sync-affiliates', async (req, res) => {
       total: affiliates.length 
     });
   } catch (err) {
-    console.error('שגיאה בסנכרון אפיליאייטים:', err.message);
+    console.error('Error syncing affiliates:', err.message);
     res.status(500).json({ error: 'Failed to sync affiliates', details: err.message });
   }
 });

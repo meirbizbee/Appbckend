@@ -1,13 +1,13 @@
-// שירות שליחת SMS (פייק)
+// SMS sending service (fake)
 async function sendSMS(phoneNumber, code) {
-  // כאן אפשר להחליף ל-Twilio בעתיד
-  console.log(`SMS ל- ${phoneNumber}: קוד האימות שלך הוא ${code}`);
+  // Here you can replace with Twilio in the future
+  console.log(`SMS to ${phoneNumber}: Your verification code is ${code}`);
 }
 
-// פונקציה לשליחת ווטסאפ
+// Function to send WhatsApp
 async function sendWhatsApp(phoneNumber, message) {
   try {
-    // אם יש לך Twilio WhatsApp Business API
+    // If you have Twilio WhatsApp Business API
     if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
       const twilio = require('twilio');
       const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -18,13 +18,13 @@ async function sendWhatsApp(phoneNumber, message) {
         to: `whatsapp:${phoneNumber}`
       });
       
-      console.log(`ווטסאפ נשלח בהצלחה ל- ${phoneNumber}`);
+      console.log(`WhatsApp sent successfully to ${phoneNumber}`);
     } 
-    // אם יש לך Callmebot API (חינמי)
+    // If you have Callmebot API (free)
     else if (process.env.CALLMEBOT_API_KEY) {
       const axios = require('axios');
       
-      // URL encoding של ההודעה
+      // URL encoding of the message
       const encodedMessage = encodeURIComponent(message);
       
       const response = await axios.get(`https://api.callmebot.com/whatsapp.php`, {
@@ -36,12 +36,12 @@ async function sendWhatsApp(phoneNumber, message) {
       });
       
       if (response.status === 200) {
-        console.log(`✅ ווטסאפ נשלח בהצלחה ל- ${phoneNumber} דרך Callmebot`);
+        console.log(`✅ WhatsApp sent successfully to ${phoneNumber} via Callmebot`);
       } else {
-        console.log(`⚠️ תגובה מ-Callmebot: ${response.status}`);
+        console.log(`⚠️ Response from Callmebot: ${response.status}`);
       }
     }
-    // אם יש לך WhatsApp Web API
+    // If you have WhatsApp Web API
     else if (process.env.WHATSAPP_WEB_URL) {
       const axios = require('axios');
       
@@ -50,21 +50,21 @@ async function sendWhatsApp(phoneNumber, message) {
         message: message
       });
       
-      console.log(`ווטסאפ נשלח בהצלחה ל- ${phoneNumber}`);
+      console.log(`WhatsApp sent successfully to ${phoneNumber}`);
     }
-    // אם אין שום דבר, נדפיס לוג (לפיתוח)
+    // If nothing is available, print log (for development)
     else {
-      console.log(`📱 ווטסאפ ל- ${phoneNumber}:`);
-      console.log(`📄 הודעה: ${message}`);
-      console.log(`💡 כדי לשלוח ווטסאפ אמיתי, הוסף אחד מהבאים ל-.env:`);
-      console.log(`   - CALLMEBOT_API_KEY (חינמי)`);
-      console.log(`   - TWILIO_* (בתשלום)`);
+      console.log(`📱 WhatsApp to ${phoneNumber}:`);
+      console.log(`📄 Message: ${message}`);
+      console.log(`💡 To send real WhatsApp, add one of the following to .env:`);
+      console.log(`   - CALLMEBOT_API_KEY (free)`);
+      console.log(`   - TWILIO_* (paid)`);
       console.log(`   - WHATSAPP_WEB_URL`);
     }
   } catch (err) {
-    console.error('שגיאה בשליחת ווטסאפ:', err.message);
+    console.error('Error sending WhatsApp:', err.message);
     if (err.response) {
-      console.error('תגובת שגיאה:', err.response.data);
+      console.error('Error response:', err.response.data);
     }
   }
 }

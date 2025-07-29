@@ -2,9 +2,9 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 
-// הגדר כאן את הפרטים של החנות שלך
-const SHOPIFY_DOMAIN = 'hhmf10-p1.myshopify.com'; // החלף לדומיין שלך
-const SHOPIFY_ADMIN_ACCESS_TOKEN = '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'; // שמור בסביבה בטוחה!
+// Configure your store details here
+const SHOPIFY_DOMAIN = 'hhmf10-p1.myshopify.com'; // Replace with your domain
+const SHOPIFY_ADMIN_ACCESS_TOKEN = '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'; // Store in secure environment!
 
 router.get('/', async (req, res) => {
   try {
@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
       description: product.body_html,
       imageUrl: product.image?.src || (product.images[0]?.src ?? null),
       body: product.body_html,
-      handle: product.handle, // תוכל להשתמש בזה ליצירת קישור אפיליאציה
+      handle: product.handle, // You can use this to create affiliate links
     }));
     res.json(products);
   } catch (err) {

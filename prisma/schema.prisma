@@ -22,8 +22,8 @@ model User {
   isVerified        Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-  apiKey            String?   // מפתח API של UpPromote
-  affiliateId       String?   // מזהה אפיליאייט מ-UpPromote (או המזהה הייחודי שלך)
+  affiliateId       String?   // מזהה פנימי לשימוש ב-UpPromote
+  personalLink      String?   // לינק אישי של המשתמש
   campaigns Campaign[]
 }
 
@@ -46,7 +46,11 @@ model Campaign {
   affiliateLink String
   clicks        Int      @default(0)
   referrals     Int      @default(0)
+  revenue       Float    @default(0)  // הכנסות מקמפיין
+  commission    Float    @default(0)  // עמלות
+  status        String   @default("active")  // סטטוס קמפיין
   createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 // ניתן למחוק את CampaignProduct אם לא צריך יותר קישור טבלה

@@ -6,6 +6,7 @@ const usersRouter = require('./api/users');
 const authRouter = require('./api/auth');
 const productsRouter = require('./api/products');
 const campaignsRouter = require('./api/campaigns');
+const affiliatesRouter = require('./api/affiliates');
 const authenticateToken = require('./middleware/auth');
 
 const app = express();
@@ -16,6 +17,7 @@ app.use('/users', usersRouter);
 app.use('/auth', authRouter);
 app.use('/products', productsRouter);
 app.use('/campaigns', authenticateToken, campaignsRouter);
+app.use('/affiliates', authenticateToken, affiliatesRouter);
 
 
 
