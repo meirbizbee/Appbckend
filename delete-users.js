@@ -2,13 +2,14 @@
  * מחיקת משתמשים מהדאטאבייס כדי לאפשר הרשמה מחדש.
  *
  * שימוש:
- *   node delete-users.js                  # מציג את כל המשתמשים
- *   node delete-users.js 0501234567       # מוחק משתמש לפי מספר טלפון
- *   node delete-users.js 0501 0502        # מוחק כמה משתמשים
- *   node delete-users.js --all            # מוחק את כל המשתמשים (זהירות!)
+ *   node delete-users.js                       # מציג את כל המשתמשים
+ *   node delete-users.js +972587160468         # מוחק משתמש לפי מספר טלפון
+ *   node delete-users.js 0587160467 0501234567 # מוחק כמה משתמשים
+ *   node delete-users.js --all                 # מוחק את כל המשתמשים (זהירות!)
  */
 require('dotenv').config();
 const prisma = require('./src/db/prisma');
+const { findUserByPhone } = require('./src/services/phone');
 
 async function listUsers() {
   const users = await prisma.user.findMany({
@@ -39,7 +40,7 @@ async function listUsers() {
 }
 
 async function deleteByPhone(phoneNumber) {
-  const user = await prisma.user.findUnique({ where: { phoneNumber } });
+  const user = await findUserByPhone(prisma, phoneNumber);
   if (!user) {
     console.log(`לא נמצא משתמש עם טלפון: ${phoneNumber}`);
     return false;
@@ -50,7 +51,7 @@ async function deleteByPhone(phoneNumber) {
     prisma.user.delete({ where: { id: user.id } }),
   ]);
 
-  console.log(`נמחק: ${user.fullName} (${phoneNumber})`);
+  console.log(`נמחק: ${user.fullName} (${user.countryCode}${user.phoneNumber})`);
   return true;
 }
 

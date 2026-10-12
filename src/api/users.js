@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../db/prisma');
 const jwt = require("../services/jwt");
 const { sendSMS } = require('../services/sms');
+const { findUserByPhone } = require('../services/phone');
 
 // POST /users - הרשמה
 router.post('/', async (req, res) => {
@@ -62,7 +63,7 @@ router.delete('/', async (req, res) => {
     return res.status(400).json({ error: 'Missing phoneNumber' });
   }
   try {
-    const user = await prisma.user.findUnique({ where: { phoneNumber } });
+    const user = await findUserByPhone(prisma, phoneNumber);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -72,7 +73,11 @@ router.delete('/', async (req, res) => {
       prisma.user.delete({ where: { id: user.id } }),
     ]);
 
-    res.json({ message: 'User deleted', phoneNumber });
+    res.json({
+      message: 'User deleted',
+      phoneNumber: user.phoneNumber,
+      countryCode: user.countryCode,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
