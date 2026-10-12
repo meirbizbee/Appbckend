@@ -55,5 +55,29 @@ router.get('/me', async (req, res) => {
   }
 });
 
+// DELETE /users - מחיקת משתמש לפי מספר טלפון (כולל קמפיינים) כדי לאפשר הרשמה מחדש
+router.delete('/', async (req, res) => {
+  const { phoneNumber } = req.body;
+  if (!phoneNumber) {
+    return res.status(400).json({ error: 'Missing phoneNumber' });
+  }
+  try {
+    const user = await prisma.user.findUnique({ where: { phoneNumber } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await prisma.$transaction([
+      prisma.campaign.deleteMany({ where: { userId: user.id } }),
+      prisma.user.delete({ where: { id: user.id } }),
+    ]);
+
+    res.json({ message: 'User deleted', phoneNumber });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 
 module.exports = router; 
