@@ -39,7 +39,7 @@ model Product {
 model Campaign {
   id            String   @id @default(uuid())
   name          String
-  user          User     @relation(fields: [userId], references: [id])
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId        String
   productId     String   // מזהה מוצר משופיפיי
   affiliateLink String
