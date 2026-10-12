@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../db/prisma');
 const jwt = require("../services/jwt");
 const { sendSMS } = require('../services/sms');
+const { findUserByPhone } = require('../services/phone');
 
 // POST /users - הרשמה
 router.post('/', async (req, res) => {
@@ -52,6 +53,34 @@ router.get('/me', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(401).json({ error: "Invalid token" });
+  }
+});
+
+// DELETE /users - מחיקת משתמש לפי מספר טלפון (כולל קמפיינים) כדי לאפשר הרשמה מחדש
+router.delete('/', async (req, res) => {
+  const { phoneNumber } = req.body;
+  if (!phoneNumber) {
+    return res.status(400).json({ error: 'Missing phoneNumber' });
+  }
+  try {
+    const user = await findUserByPhone(prisma, phoneNumber);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await prisma.$transaction([
+      prisma.campaign.deleteMany({ where: { userId: user.id } }),
+      prisma.user.delete({ where: { id: user.id } }),
+    ]);
+
+    res.json({
+      message: 'User deleted',
+      phoneNumber: user.phoneNumber,
+      countryCode: user.countryCode,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
