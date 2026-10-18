@@ -83,6 +83,104 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /users/me - Get the current user, including the profile image
+router.get('/me', async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'Invalid token format' });
+    }
+
+    const payload = jwt.verifyToken(token);
+    if (!payload || !payload.userId) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: {
+        id: true,
+        fullName: true,
+        phoneNumber: true,
+        countryCode: true,
+        isVerified: true,
+        affiliateId: true,
+        personalLink: true,
+        profileImage: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(user);
+  } catch (err) {
+    console.error(err);
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PATCH /users/me - Save the current user's profile image
+router.patch('/me', async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'Invalid token format' });
+    }
+
+    const payload = jwt.verifyToken(token);
+    if (!payload || !payload.userId) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const { profileImage } = req.body;
+    const isImage =
+      typeof profileImage === 'string' &&
+      /^data:image\/(jpeg|jpg|png|webp|heic|heif);base64,/i.test(profileImage);
+
+    if (!isImage) {
+      return res.status(400).json({ error: 'Invalid image' });
+    }
+
+    if (profileImage.length > 1500000) {
+      return res.status(413).json({ error: 'Image is too large' });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: payload.userId },
+      data: { profileImage },
+      select: {
+        id: true,
+        profileImage: true,
+      },
+    });
+
+    res.json(user);
+  } catch (err) {
+    console.error(err);
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /users/:id - Get specific user
 router.get('/:id', async (req, res) => {
   try {

@@ -20,6 +20,7 @@ model User {
   countryCode       String
   verificationCode  String?
   isVerified        Boolean  @default(false)
+  profileImage      String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   affiliateId       String?   // מזהה פנימי לשימוש ב-UpPromote
