@@ -10,7 +10,7 @@ const authenticateToken = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
 app.use('/users', usersRouter);
 app.use('/auth', authRouter);
