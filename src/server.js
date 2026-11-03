@@ -1,28 +1,12 @@
 const express = require('express');
 const cors = require('cors');
-const { Client } = require('pg');
+const prisma = require('./db/prisma');
 require('dotenv').config();
 
 async function ensureProfileImageColumn() {
-  if (!process.env.DATABASE_URL) {
-    console.log('No DATABASE_URL, skipping profile image column');
-    return;
-  }
-
-  const databaseUrl = process.env.DATABASE_URL;
-  const needsSsl =
-    databaseUrl.includes('sslmode=require') ||
-    databaseUrl.includes('.render.com');
-  const client = new Client({
-    connectionString: databaseUrl,
-    ssl: needsSsl ? { rejectUnauthorized: false } : false,
-  });
-
-  await client.connect();
-  await client.query(
+  await prisma.$executeRawUnsafe(
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "profileImage" TEXT',
   );
-  await client.end();
   console.log('profileImage column is ready');
 }
 
