@@ -1,6 +1,28 @@
 const express = require('express');
 const cors = require('cors');
+const { Client } = require('pg');
 require('dotenv').config();
+
+async function ensureProfileImageColumn() {
+  if (!process.env.DATABASE_URL) {
+    console.log('No DATABASE_URL, skipping profile image column');
+    return;
+  }
+
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL.includes('localhost')
+      ? false
+      : { rejectUnauthorized: false },
+  });
+
+  await client.connect();
+  await client.query(
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "profileImage" TEXT',
+  );
+  await client.end();
+  console.log('profileImage column is ready');
+}
 
 const usersRouter = require('./api/users');
 const authRouter = require('./api/auth');
@@ -20,6 +42,13 @@ app.use('/campaigns', authenticateToken, campaignsRouter);
 
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-}); 
+
+ensureProfileImageColumn()
+  .catch((error) => {
+    console.error('Could not prepare profile image column:', error.message);
+  })
+  .finally(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  }); 
