@@ -9,11 +9,13 @@ async function ensureProfileImageColumn() {
     return;
   }
 
+  const databaseUrl = process.env.DATABASE_URL;
+  const needsSsl =
+    databaseUrl.includes('sslmode=require') ||
+    databaseUrl.includes('.render.com');
   const client = new Client({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL.includes('localhost')
-      ? false
-      : { rejectUnauthorized: false },
+    connectionString: databaseUrl,
+    ssl: needsSsl ? { rejectUnauthorized: false } : false,
   });
 
   await client.connect();
